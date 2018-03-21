@@ -3,6 +3,7 @@
 namespace jspaceboots\crudql;
 
 use Illuminate\Support\ServiceProvider;
+use jspaceboots\crudql\Commands\ScaffoldCommand;
 
 class crudqlServiceProvider extends ServiceProvider
 {
@@ -13,10 +14,16 @@ class crudqlServiceProvider extends ServiceProvider
      */
     public function boot()
     {
-        $this->publishes([__DIR__ . '/Config/crud.php' => config_path('crud.php')], 'config');
+        $this->publishes([__DIR__ . '/Config/crudql.php' => config_path('crudql.php')], 'config');
         $this->publishes([__DIR__ . '/public' => public_path('vendor/CrudQL')], 'public');
         $this->loadRoutesFrom(__DIR__ . '/Http/routes.php');
         $this->loadViewsFrom(__DIR__ . '/resources/views', 'CrudQL');
+
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                 ScaffoldCommand::class
+            ]);
+        }
     }
 
     /**
@@ -26,6 +33,6 @@ class crudqlServiceProvider extends ServiceProvider
      */
     public function register()
     {
-        $this->app->register(\jspaceboots\crudql\Providers\CrudServiceProvider::class);
+        //$this->app->register(\jspaceboots\crudql\Providers\CrudServiceProvider::class);
     }
 }

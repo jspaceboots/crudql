@@ -4,6 +4,7 @@ namespace jspaceboots\crudql\Commands;
 
 use Illuminate\Console\Command;
 use jspaceboots\crudql\Helpers\CrudHelper;
+use Illuminate\Support\Pluralizer;
 
 class ScaffoldCommand extends Command
 {
@@ -21,115 +22,185 @@ class ScaffoldCommand extends Command
 
     public function handle()
     {
-        $namespaces = config('crud.namespaces');
-        $entity = ucfirst($this->ask('What is the name of your entity? (Singular, UcWord, CamelCase)'));
+
+        $namespaces = config('crudql.namespaces');
+        $entity = ucfirst($this->ask('What is the name of your entity? (Singular, UpperCaseWord, CamelCase)'));
+        $createGuiCrud = false;
+        $createGraphQlCrud = false;
+
+        if (config('crudql.interfaces.html.enabled')) {
+            $createGuiCrud = $this->confirm('Would you like to expose your entity through the admin GUI?');
+        }
+        if (config('crudql.interfaces.graphql.enabled')) {
+            $createGraphQlCrud = $this->confirm('Would you like to expose your entity through GraphQL?');
+        }
+        $createUnitTest = $this->confirm("You need a unit test?");
+        $createIntegrationTest = $this->confirm("How about an integration test boss?");
+
+        $model = $entity;
         $table = $this->helper->getTableNameFromModelName($entity);
         $timestamp = (new \DateTime())->format('Y_m_d_u');
+        $this->info('This will create:');
+        $this->output->newLine(1);
 
-        $creates = "FILES" . PHP_EOL;
-        $creates .= "=================================================================================================";
-        $creates .= PHP_EOL . "Model:\t\t{$namespaces['models']}$entity" . PHP_EOL;
-        $creates .= "Repository:\t{$namespaces['repositories']}{$entity}Repository" . PHP_EOL;
-        $creates .= "Transformer:\t{$namespaces['transformers']}{$entity}Transformer" . PHP_EOL;
-        $creates .= "GraphQL Type:\t${$namespaces['types']}{$entity}Type" . PHP_EOL;
-        $creates .= "GraphQL Query:\t${$namespaces['querys']}{$entity}Query" . PHP_EOL;
-        $creates .= "GraphQL Mutation:\t${$namespaces['mutations']}{$entity}Mutation" . PHP_EOL;
-        $creates .= "Migration:\tdatabase/migrations/{$timestamp}_create_{$table}_table.php" . PHP_EOL;
-        $creates .= "Unit Tests:\ttests/unit/{$entity}Test.php" . PHP_EOL . PHP_EOL;
+        $this->info('Scaffolding');
+        $this->table(['Type', 'Path'], [
+            ['Model', "{$namespaces['models']}\\$entity"],
+            ['Repository', "{$namespaces['repositories']}\\{$entity}Repository"],
+            ['Transformer', "{$namespaces['transformers']}\\{$entity}Transformer"],
+            ['Migration', "database/migrations/{$timestamp}_create_{$table}_table.php"],
+            ['Unit test', $createUnitTest ? "tests/Unit/{$entity}Test.php" : "N/A"],
+            ['Integration test', $createIntegrationTest ? "tests/Integration/{$entity}Test.php" : "N/A"]
+        ]);
 
-        if (config('crud.interfaces.html.enabled')) {
-            $creates .= "ADMIN PANEL ROUTES" . PHP_EOL;
-            $creates .= "=================================================================================================" . PHP_EOL;
-            $creates .= "GET\t/crud/{$table}\t\t Read {$entity}s" . PHP_EOL;
-            $creates .= "GET\t/crud/{$table}/new\t Create a new $entity" . PHP_EOL;
-            $creates .= "GET\t/crud/${table}/{id}\t Edit a $entity" . PHP_EOL;
-            $creates .= "POST\t/crud/${table}\t\t Creates a {$entity} on form submission" . PHP_EOL;
-            $creates .= "PATCH\t/crud/{$table}/{id}\t Updates a {$entity} on form submission" . PHP_EOL;
-            $creates .= "DELETE\t/crud/{$table}/{id}\t Deletes a {$entity} on form submission" . PHP_EOL;
+        if ($createGraphQlCrud) {
+            $this->output->newLine(1);
+            $this->info('GraphQL CRUD Scaffolding');
+            $this->table(['Type', 'Path'], [
+                ['GraphQL Type', "{$namespaces['types']}\\{$entity}Type"],
+                ['GraphQL Query', "{$namespaces['queries']}\\{$entity}Query"],
+                ['GraphQL Mutation', "{$namespaces['mutations']}\\{$entity}Mutation"],
+            ]);
         }
 
-        // T
+        if ($createGuiCrud) {
+            $this->output->newLine(1);
+            $this->info('Admin UI Routes');
+            $this->table(['Verb', 'Path', 'Description'], [
+                ['GET', "/crud/{$table}", "Read {$entity}"],
+                ['GET', "/crud/{$table}/new", "Return a form to POST a new $entity"],
+                ['GET', "/crud/{$table}/{id}", "Return a form to PATCH an existing $entity"],
+                ['POST', "/crud/{$table}", "Creates a {$entity} on form submission"],
+                ['PATCH', "/crud/{$table}/{id}", "Updates a {$entity} on form submission"],
+                ['DELETE', "/crud/{$table}/{id}", "Deletes a {$entity} on form submission"]
+            ]);
+        }
 
-        $this->info('This will create:' . PHP_EOL . PHP_EOL . $creates . PHP_EOL);
         $continue = $this->confirm('Look good?');
 
         if ($continue) {
-            $bar = $this->barSetup($this->output->createProgressBar(10));
+            $steps = 6;
+            if ($createGraphQlCrud) { $steps = $steps + 1; }
+            if ($createUnitTest) { $steps = $steps + 1; }
+            if ($createIntegrationTest) { $steps = $steps + 1; }
+            if ($createGuiCrud) { $steps = $steps + 1; }
+
+            $bar = $this->barSetup($this->output->createProgressBar($steps));
             $bar->start();
             $model = $entity;
 
             $this->info('Creating model...');
             $modelContents = '<?php ' . view('CrudQL::Scaffolding.model', ['model' => $model, 'table' => $table]);
-            $modelDir = $this->getPathFromNamespace(config('crud.namespaces.models'));
+            $modelDir = $this->getPathFromNamespace(config('crudql.namespaces.models'));
             if (!file_exists($modelDir)) {
                 mkdir($modelDir);
             }
-            $modelFile = $modelDir . "{$model}.php";
+            $modelFile = $modelDir . "/{$model}.php";
             file_put_contents($modelFile, $modelContents);
             $bar->advance();
 
             $this->info('Creating model repository ...');
             $repo = '<?php ' . view('CrudQL::Scaffolding.repository', ['model' => $model]);
-            $repoDir = $this->getPathFromNamespace(config('crud.namespaces.repositories'));
+            $repoDir = $this->getPathFromNamespace(config('crudql.namespaces.repositories'));
             if (!file_exists($repoDir)) {
                 mkdir($repoDir);
             }
-            file_put_contents($repoDir . "{$model}Repository.php", $repo);
+            file_put_contents($repoDir . "/{$model}Repository.php", $repo);
             $bar->advance();
 
-            $this->info('Creating model transformer...');
-            $transformer = '<?php ' . view('CrudQL::Scaffolding.transformer', ['model' => $model]);
-            $transformerDir = $this->getPathFromNamespace(config('crud.namespaces.transformers'));
-            if (!file_exists($transformerDir)) {
-                mkdir($transformerDir);
+            $this->info('Creating model transformer ...');
+            $repo = '<?php ' . view('CrudQL::Scaffolding.transformer', ['model' => $model]);
+            $repoDir = $this->getPathFromNamespace(config('crudql.namespaces.transformers'));
+            if (!file_exists($repoDir)) {
+                mkdir($repoDir);
             }
-            file_put_contents($transformerDir . "{$model}Transformer.php", $transformer);
+            file_put_contents($repoDir . "/{$model}Transformer.php", $repo);
             $bar->advance();
 
-
-            $this->info("Creating GraphQL Type...");
-            $type = '<?php' . view('CrudQL::Scaffolding.type', ['model' => $model]);
-            $typeDir = $this->getPathFromNamespace(config('crud.namespaces.types'));
-            if (!file_exists($typeDir)) {
-                mkdir($typeDir);
+            if ($createUnitTest) {
+                $this->info("Creating unit test...");
+                $unitTest = '<?php' . PHP_EOL . 'namespace Tests\\Unit;' . PHP_EOL . view('CrudQL::Scaffolding.test', ['model' => $model]);
+                $unitTestDir = lcfirst($this->getPathFromNamespace(config('crudql.namespaces.unittests')));
+                if (!file_exists($unitTestDir)) {
+                    mkdir($unitTestDir, 0777, true);
+                }
+                file_put_contents($unitTestDir . "/{$model}Test.php", $unitTest);
+                $bar->advance();
             }
-            file_put_contents($typeDir . "{$model}Type.php", $type);
-            $bar-advance();
 
-            $this->info("Creating GraphQL Query...");
-            $ = '<?php' . view('CrudQL::Scaffolding.query', ['model' => $model]);
-            $typeDir = $this->getPathFromNamespace(config('crud.namespaces.queries'));
-            if (!file_exists($typeDir)) {
-                mkdir($typeDir);
+            if ($createIntegrationTest) {
+                $this->info("Creating integration test...");
+                $intTest = '<?php' . PHP_EOL . 'namespace Tests\\Integration;' . PHP_EOL . view('CrudQL::Scaffolding.test', ['model' => $model]);
+                $intTestDir = $this->getPathFromNamespace(config('crudql.namespaces.integrationtests'));
+                if (!file_exists($intTestDir)) {
+                    mkdir($intTestDir, 0777, true);
+                }
+                file_put_contents($intTestDir . "/{$model}Test.php", $intTest);
+                $bar->advance();
             }
-            file_put_contents($typeDir . "{$model}Type.php", $type);
-            $bar-advance();
-
-
 
             $datetime = (new \DateTime())->format('Y_m_d_u');
-            $migrationFile = "database/migrations/{$datetime}_create_" . strtolower($model) . "s_table.php";
+            $migrationFile = "database/migrations/{$datetime}_create_" . strtolower($table) . "_table.php";
             $this->info('Creating migration...');
-            $migrationContents = '<?php ' . view('CrudQL::Scaffolding.migration', ['model' => $model, 'table' => $table]);
+            $migrationContents = '<?php ' . view('CrudQL::Scaffolding.migration', ['model' => Pluralizer::plural($model), 'table' => $table]);
             file_put_contents($migrationFile, $migrationContents);
             $bar->advance();
 
-            $this->info('Creating unit test...');
-            $unittestContents = '<?php ' . view('CrudQL::Scaffolding.unittest', ['model' => $model, 'table' => $table]);
-            $datetime = (new \DateTime())->format('Y_m_d_u');
-            file_put_contents("tests/Unit/{$model}Test", $unittestContents);
-            $bar->advance();
+            if ($createGraphQlCrud) {
+                $this->info("Creating GraphQL Type...");
+                $type = '<?php ' . view('CrudQL::Scaffolding.type', ['model' => $model]);
+                $typeDir = $this->getPathFromNamespace(config('crudql.namespaces.types'));
+                if (!file_exists($typeDir)) {
+                    mkdir($typeDir, 0777, true);
+                }
+                file_put_contents($typeDir . "/{$model}Type.php", $type);
+                $bar->advance();
 
-            $this->info('Adding model to CrudQL routing...');
-            $config = file_get_contents("config/crud.php");
-            $configArray = explode(PHP_EOL, $config);
-            $result = array_search("    'routing' => [", $configArray);
-            $newRow = "        '" . strtolower($model) . "' => [],";
-            array_splice($configArray, $result + 1, 0, $newRow);
-            file_put_contents('config/crud.php', implode(PHP_EOL, $configArray));
+                $this->info("Creating GraphQL Query...");
+                $query = '<?php ' . view('CrudQL::Scaffolding.query', ['model' => $model]);
+                $queryDir = $this->getPathFromNamespace(config('crudql.namespaces.queries'));
+                if (!file_exists($queryDir)) {
+                    mkdir($queryDir);
+                }
+                file_put_contents($queryDir . "/{$model}Query.php", $query);
+                $bar->advance();
+
+                $this->info("Creating GraphQL Mutation...");
+                $query = '<?php ' . view('CrudQL::Scaffolding.mutation', ['model' => $model]);
+                $queryDir = $this->getPathFromNamespace(config('crudql.namespaces.mutations'));
+                if (!file_exists($queryDir)) {
+                    mkdir($queryDir);
+                }
+                file_put_contents($queryDir . "/{$model}Mutation.php", $query);
+                $bar->advance();
+
+                $this->info('Exposing Type, Mutation & Query to GraphQL...');
+                $config = file_get_contents("config/graphql.php");
+                $configArray = explode(PHP_EOL, $config);
+                $queryPos = array_search("            'query' => [", $configArray);
+                $mutationPos = array_search("            'mutation' => [", $configArray);;
+                $typePos = array_search("    'types' => [", $configArray);
+
+                $newQueryRow = "'$model' => '" . config('crudql.namespaces.queries') . "\\{$model}Query',";
+                $newMutationRow = "'$model' => '" . config('crudql.namespaces.mutations') . "\\{$model}Mutation',";
+                $newTypeRow = "'$model' => '" . config('crudql.namespaces.types') . "\\{$model}Type',";
+
+                array_splice($configArray, $queryPos + 1, 0, $newQueryRow);
+                array_splice($configArray, $mutationPos + 2, 0, $newMutationRow);
+                array_splice($configArray, $typePos + 3, 0, $newTypeRow);
+                file_put_contents('config/graphql.php', implode(PHP_EOL, $configArray));
+
+                $config = file_get_contents("config/crudql.php");
+                $configArray = explode(PHP_EOL, $config);
+                $result = array_search("    'routing' => [", $configArray);
+                $newRow = "        '" . strtolower($model) . "' => [],";
+                array_splice($configArray, $result + 1, 0, $newRow);
+                file_put_contents('config/crudql.php', implode(PHP_EOL, $configArray));
+            }
+
             $bar->advance();
             $bar->finish();
-            $this->info('Model created successfully!');
+            $this->info('Entity scaffolded successfully!');
             $this->output->newLine(2);
             $bar = null;
 
@@ -139,13 +210,15 @@ class ScaffoldCommand extends Command
                 $this->writeFieldsToMigration($migrationFile);
             }
 
+            /* TODO: complete validation and relation scaffolding
             if (count($this->validators)) {
                 $this->writeValidatorsToModel($modelFile);
             }
 
             if (count($this->relations)) {
-
+                $this->writeRelationsToModel($modelFile);
             }
+            */
         }
     }
 
@@ -173,7 +246,7 @@ class ScaffoldCommand extends Command
 
             $fieldType = false;
             while (!$fieldType) {
-                $fieldType = $this->anticipate("What's the fields type?", config('crud.fieldTypes'));
+                $fieldType = $this->anticipate("What's the fields type?", config('crudql.fieldTypes'));
             }
 
             $this->fields[$fieldName] = $fieldType;
@@ -181,9 +254,9 @@ class ScaffoldCommand extends Command
             $continue = $this->confirm('Would you like to define another field?');
         }
 
-        if ($nextQuestion) {
+        /*if ($nextQuestion) {
             $this->askAboutValidators();
-        }
+        }*/
     }
 
     private function askAboutValidators()
@@ -195,7 +268,7 @@ class ScaffoldCommand extends Command
                 $this->validators[$field] = [];
             }
 
-            $validator = $this->anticipate("Which kind of validator?", array_keys(config('crud.validators')));
+            $validator = $this->anticipate("Which kind of validator?", array_keys(config('crudql.validators')));
             $this->validators[$field][] = $validator;
 
             $continue = $this->confirm("Would you like to add another validator?");
@@ -253,5 +326,9 @@ class ScaffoldCommand extends Command
             }
         }
         file_put_contents($filename, implode($modelArray, PHP_EOL));
+    }
+
+    private function writeRelationsToModel() {
+
     }
 }

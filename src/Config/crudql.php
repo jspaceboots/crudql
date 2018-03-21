@@ -2,6 +2,7 @@
 
 return [
     'limit' => 25,
+    'relationDepthLimit' => 20,
     'interfaces' => [
         'html' => [
             'enabled' => true,
@@ -15,12 +16,17 @@ return [
     'overrideAuthViews' => true,
     'useSubnav' => false,
     'namespaces' => [
+        'models' => '\\App\\Models',
         'queries' => '\\App\\GraphQL\\Queries',
         'mutations' => '\\App\\GraphQL\\Mutations',
-        'types' => '\\App\\GraphQL\\Types'
+        'types' => '\\App\\GraphQL\\Types',
+        'transformers' => '\\App\\Transformers',
+        'repositories' => '\\App\\Repositories',
+        'unittests' => '\\Tests\\Unit',
+        'integrationtests' => '\\Tests\\Integration'
     ],
     'tableNormalizationExceptions' => [],
-    'fieldTypes' => [ // Uncomment any fields you need, comment any you don't like
+    'fieldTypes' => [
         'string',
         'bigIncrements',
         'bigInteger',
@@ -159,7 +165,12 @@ return [
             'varchar'
         ]
     ],
-    'routing' => [
-
-    ],
+    // Hooks will pass two arguments to a function of your choice: action, entity
+    // Action follows the format EntitynameAction (PostCreated, MediaEdited, PostTagDeleted, etc)
+    // Specify hook functions using the fully qualified classname + @function, examples:
+    //  - "\\App\\Whatever\\MyClass@functionName"
+    //  - \App\Whatever\MyClass::class . '@functionName'
+    'createHook' => null,
+    'editHook' => null,
+    'deleteHook' => null
 ];
